@@ -1,0 +1,76 @@
+class Ctor {
+  public String tag;
+  public Ctor(byte[] b, int off, int len) { this.tag = "byte[]:" + b.length + "/" + off + "/" + len; }
+}
+
+// 复刻插件的 _gmCall：脚本函数 + 反射 invoke
+Object _gmCall(Object target, String name, Object[] args) {
+  java.lang.reflect.Method[] ms = target.getClass().getMethods();
+  for (int i = 0; i < ms.length; i++) {
+    if (!ms[i].getName().equals(name)) continue;
+    Class[] pts = ms[i].getParameterTypes();
+    if (pts.length != args.length) continue;
+    boolean ok = true;
+    for (int j = 0; j < pts.length; j++) {
+      Class at = (args[j] == null) ? Object.class : args[j].getClass();
+      if (!pts[j].isAssignableFrom(at)) { ok = false; break; }
+    }
+    if (!ok) continue;
+    ms[i].setAccessible(true);
+    return ms[i].invoke(target, args);
+  }
+  return null;
+}
+
+// 复刻插件的 ctor 调用路径
+Object _gmNew(Class cls, Object[] args) {
+  Class[] pts = new Class[args.length];
+  for (int j = 0; j < args.length; j++) pts[j] = (j == 0) ? byte[].class : int.class;
+  java.lang.reflect.Constructor c = cls.getDeclaredConstructor(pts);
+  c.setAccessible(true);
+  return c.newInstance(args);
+}
+
+class Holder {
+  public String ping(byte[] b) { return "ping-len=" + b.length; }
+  public Object self() { return this; }
+}
+
+Object run() {
+  byte[] payload = new byte[]{1, 2, 3, 4, 5, 6, 7};
+  StringBuilder sb = new StringBuilder();
+  Holder h = new Holder();
+
+  // 1) 脚本函数 + 字面量（插件 parseFrom 的失败方式）
+  try {
+    Object r = _gmCall(h, "ping", new Object[]{payload});
+    sb.append("1脚本函数+字面量=OK:").append(r).append("\n");
+  } catch (Throwable t) { sb.append("1脚本函数+字面量=FAIL:").append(t).append("\n"); }
+
+  // 2) 脚本函数 + 索引赋值
+  try {
+    Object[] ao = new Object[1];
+    ao[0] = payload;
+    Object r = _gmCall(h, "ping", ao);
+    sb.append("2脚本函数+索引赋值=OK:").append(r).append("\n");
+  } catch (Throwable t) { sb.append("2脚本函数+索引赋值=FAIL:").append(t).append("\n"); }
+
+  // 3) ctor：脚本函数包装 + 字面量（插件 g.<init> 的失败方式）
+  try {
+    Object o = _gmNew(Ctor.class, new Object[]{payload, new Integer(0), new Integer(payload.length)});
+    sb.append("3ctor+字面量=OK:").append(((Ctor) o).tag).append("\n");
+  } catch (Throwable t) { sb.append("3ctor+字面量=FAIL:").append(t).append("\n"); }
+
+  // 4) ctor：索引赋值
+  try {
+    Object[] ao = new Object[3];
+    ao[0] = payload;
+    ao[1] = new Integer(0);
+    ao[2] = new Integer(payload.length);
+    Object o = _gmNew(Ctor.class, ao);
+    sb.append("4ctor+索引赋值=OK:").append(((Ctor) o).tag).append("\n");
+  } catch (Throwable t) { sb.append("4ctor+索引赋值=FAIL:").append(t).append("\n"); }
+
+  return sb.toString();
+}
+print(run());
