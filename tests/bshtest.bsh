@@ -1,0 +1,52 @@
+// 验证 bsh 数组参数传参机制
+class Ctor {
+  public String tag;
+  public Ctor(byte[] b, int off, int len) { this.tag = "byte[]:" + b.length + "/" + off + "/" + len; }
+}
+class Method {
+  public String call(byte[] b) { return "byte[]:" + b.length; }
+}
+
+Object run() {
+  byte[] payload = new byte[]{1, 2, 3, 4, 5};
+  StringBuilder sb = new StringBuilder();
+
+  // 方案A：数组字面量直接传（线上失败的方式）
+  try {
+    java.lang.reflect.Constructor c = Ctor.class.getDeclaredConstructor(new Class[]{byte[].class, int.class, int.class});
+    Object o = c.newInstance(new Object[]{payload, new Integer(0), new Integer(payload.length)});
+    sb.append("A字面量=OK:").append(((Ctor) o).tag).append("\n");
+  } catch (Throwable t) { sb.append("A字面量=FAIL:").append(t).append("\n"); }
+
+  // 方案B：索引赋值后再传
+  try {
+    Object[] ao = new Object[3];
+    ao[0] = payload;
+    ao[1] = new Integer(0);
+    ao[2] = new Integer(payload.length);
+    java.lang.reflect.Constructor c = Ctor.class.getDeclaredConstructor(new Class[]{byte[].class, int.class, int.class});
+    Object o = c.newInstance(ao);
+    sb.append("B索引赋值=OK:").append(((Ctor) o).tag).append("\n");
+  } catch (Throwable t) { sb.append("B索引赋值=FAIL:").append(t).append("\n"); }
+
+  // 方案C：Array.newInstance+Array.set
+  try {
+    Object ao = java.lang.reflect.Array.newInstance(Object.class, 1);
+    java.lang.reflect.Array.set(ao, 0, payload);
+    java.lang.reflect.Method m = Method.class.getDeclaredMethod("call", new Class[]{byte[].class});
+    Object r = m.invoke(new Method(), ao);
+    sb.append("CArrayUtil=OK:").append(r).append("\n");
+  } catch (Throwable t) { sb.append("CArrayUtil=FAIL:").append(t).append("\n"); }
+
+  // 方案D：字面量但元素先装箱成 Object 变量
+  try {
+    Object boxed = payload;
+    Object[] ao = new Object[]{boxed};
+    java.lang.reflect.Method m = Method.class.getDeclaredMethod("call", new Class[]{byte[].class});
+    Object r = m.invoke(new Method(), ao);
+    sb.append("D装箱变量=OK:").append(r).append("\n");
+  } catch (Throwable t) { sb.append("D装箱变量=FAIL:").append(t).append("\n"); }
+
+  return sb.toString();
+}
+print(run());
